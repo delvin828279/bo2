@@ -1,18 +1,21 @@
-import telebot
 import os
+import telebot
 import google.generativeai as genai
+from flask import Flask, request
 
 # ==================== توکن‌ها ====================
 TOKEN = os.environ.get("BOT_TOKEN")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL")  # آدرس دامنه Leapcell
 
 bot = telebot.TeleBot(TOKEN)
+app = Flask(__name__)
 
 # تنظیم Gemini
 genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel("gemini-1.5-flash")
 
-# ذخیره تاریخچه چت هر کاربر
+# ذخیره تاریخچه چت
 chat_sessions = {}
 
 # ==================== شروع ====================
@@ -36,29 +39,43 @@ def start(message):
 def clear_history(message):
     user_id = message.from_user.id
     chat_sessions[user_id] = model.start_chat(history=[])
-    bot.send_message(message.chat.id, "✅ تاریخچه پاک شد! دوباره شروع کن.")
+    bot.send_message(message.chat.id, "✅ تاریخچه پاک شد!")
 
-# ==================== دریافت پیام و پاسخ AI ====================
+# ==================== پیام‌ها ====================
 
 @bot.message_handler(func=lambda m: True)
 def handle_message(message):
     user_id = message.from_user.id
-
     try:
         bot.send_chat_action(message.chat.id, 'typing')
-
         if user_id not in chat_sessions:
             chat_sessions[user_id] = model.start_chat(history=[])
-
         chat = chat_sessions[user_id]
         response = chat.send_message(message.text)
-
         bot.send_message(message.chat.id, response.text)
-
     except Exception as e:
-        bot.send_message(message.chat.id, "❌ خطایی رخ داد! دوباره امتحان کن یا /start بزن.")
+        print(f"Error: {e}")
+        bot.send_message(message.chat.id, "❌ خطایی رخ داد! دوباره امتحان کن.")
+
+# ==================== Webhook ====================
+
+@app.route(f"/{TOKEN}", methods=['POST'])
+def webhook():
+    update = telebot.types.Update.de_json(request.get_json())
+    bot.process_new_updates([update])
+    return "OK", 200
+
+@app.route("/", methods=['GET'])
+def index():
+    return "✅ ربات آنلاینه!", 200
 
 # ==================== اجرا ====================
 
-print("✅ ربات شروع به کار کرد...")
-bot.infinity_polling()
+if __name__ == "__main__":
+    # تنظیم Webhook
+    bot.remove_webhook()
+    bot.set_webhook(url=f"{WEBHOOK_URL}/{TOKEN}")
+    print(f"✅ Webhook set: {WEBHOOK_URL}/{TOKEN}")
+    
+    # اجرای وب سرور
+    app.run(host="0.0.0.0", port=8080)
