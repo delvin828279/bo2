@@ -1,19 +1,18 @@
 import os
 import telebot
-import google.generativeai as genai
+from google import genai
 from flask import Flask, request
 
 # ==================== توکن‌ها ====================
 TOKEN = os.environ.get("BOT_TOKEN")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
-WEBHOOK_URL = os.environ.get("WEBHOOK_URL")  # آدرس دامنه Leapcell
+WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
 
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 
-# تنظیم Gemini
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel("gemini-1.5-flash")
+# تنظیم Gemini جدید
+client = genai.Client(api_key=GEMINI_API_KEY)
 
 # ذخیره تاریخچه چت
 chat_sessions = {}
@@ -38,7 +37,7 @@ def start(message):
 @bot.message_handler(commands=['clear'])
 def clear_history(message):
     user_id = message.from_user.id
-    chat_sessions[user_id] = model.start_chat(history=[])
+    chat_sessions[user_id] = []
     bot.send_message(message.chat.id, "✅ تاریخچه پاک شد!")
 
 # ==================== پیام‌ها ====================
@@ -48,11 +47,32 @@ def handle_message(message):
     user_id = message.from_user.id
     try:
         bot.send_chat_action(message.chat.id, 'typing')
+
         if user_id not in chat_sessions:
-            chat_sessions[user_id] = model.start_chat(history=[])
-        chat = chat_sessions[user_id]
-        response = chat.send_message(message.text)
-        bot.send_message(message.chat.id, response.text)
+            chat_sessions[user_id] = []
+
+        # اضافه کردن پیام کاربر به تاریخچه
+        chat_sessions[user_id].append({
+            "role": "user",
+            "parts": [{"text": message.text}]
+        })
+
+        # ارسال به Gemini
+        response = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=chat_sessions[user_id]
+        )
+
+        reply = response.text
+
+        # اضافه کردن جواب به تاریخچه
+        chat_sessions[user_id].append({
+            "role": "model",
+            "parts": [{"text": reply}]
+        })
+
+        bot.send_message(message.chat.id, reply)
+
     except Exception as e:
         print(f"Error: {e}")
         bot.send_message(message.chat.id, "❌ خطایی رخ داد! دوباره امتحان کن.")
@@ -72,10 +92,7 @@ def index():
 # ==================== اجرا ====================
 
 if __name__ == "__main__":
-    # تنظیم Webhook
     bot.remove_webhook()
     bot.set_webhook(url=f"{WEBHOOK_URL}/{TOKEN}")
-    print(f"✅ Webhook set: {WEBHOOK_URL}/{TOKEN}")
-    
-    # اجرای وب سرور
+    print(f"✅ Webhook set!")
     app.run(host="0.0.0.0", port=8080)
