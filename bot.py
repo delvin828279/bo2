@@ -11,7 +11,7 @@ WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
 
-# تنظیم Gemini جدید
+# تنظیم Gemini
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 # ذخیره تاریخچه چت
@@ -22,50 +22,32 @@ chat_sessions = {}
 @bot.message_handler(commands=['start'])
 def start(message):
     name = message.from_user.first_name
-    text = f"""
-👋 سلام {name} عزیز!
-
-من یه دستیار هوش مصنوعی هستم 🤖
-هر سوالی داری بپرس، اینجام 😊
-
-/clear - پاک کردن تاریخچه مکالمه
-"""
-    bot.send_message(message.chat.id, text)
-
-# ==================== پاک کردن تاریخچه ====================
+    bot.send_message(message.chat.id, f"👋 سلام {name}!\n\nمن دستیار هوش مصنوعی هستم 🤖\nهر سوالی داری بپرس!\n\n/clear - پاک کردن تاریخچه")
 
 @bot.message_handler(commands=['clear'])
 def clear_history(message):
-    user_id = message.from_user.id
-    chat_sessions[user_id] = []
+    chat_sessions[message.from_user.id] = []
     bot.send_message(message.chat.id, "✅ تاریخچه پاک شد!")
-
-# ==================== پیام‌ها ====================
 
 @bot.message_handler(func=lambda m: True)
 def handle_message(message):
     user_id = message.from_user.id
     try:
         bot.send_chat_action(message.chat.id, 'typing')
-
         if user_id not in chat_sessions:
             chat_sessions[user_id] = []
 
-        # اضافه کردن پیام کاربر به تاریخچه
         chat_sessions[user_id].append({
             "role": "user",
             "parts": [{"text": message.text}]
         })
 
-        # ارسال به Gemini
         response = client.models.generate_content(
             model="gemini-2.0-flash",
             contents=chat_sessions[user_id]
         )
-
         reply = response.text
 
-        # اضافه کردن جواب به تاریخچه
         chat_sessions[user_id].append({
             "role": "model",
             "parts": [{"text": reply}]
@@ -75,9 +57,9 @@ def handle_message(message):
 
     except Exception as e:
         print(f"Error: {e}")
-        bot.send_message(message.chat.id, "❌ خطایی رخ داد! دوباره امتحان کن.")
+        bot.send_message(message.chat.id, f"❌ خطا: {str(e)[:100]}")
 
-# ==================== Webhook ====================
+# ==================== Routes ====================
 
 @app.route(f"/{TOKEN}", methods=['POST'])
 def webhook():
@@ -85,14 +67,15 @@ def webhook():
     bot.process_new_updates([update])
     return "OK", 200
 
+# Health check برای Leapcell
 @app.route("/", methods=['GET'])
-def index():
-    return "✅ ربات آنلاینه!", 200
+@app.route("/kaithhealthcheck", methods=['GET'])
+@app.route("/health", methods=['GET'])
+def health():
+    return "OK", 200
 
 # ==================== اجرا ====================
 
-if __name__ == "__main__":
-    bot.remove_webhook()
-    bot.set_webhook(url=f"{WEBHOOK_URL}/{TOKEN}")
-    print(f"✅ Webhook set!")
-    app.run(host="0.0.0.0", port=8080)
+bot.remove_webhook()
+bot.set_webhook(url=f"{WEBHOOK_URL}/{TOKEN}")
+print(f"✅ Webhook set: {WEBHOOK_URL}/{TOKEN}")
